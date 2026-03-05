@@ -89,6 +89,10 @@ if not exist .env (
     echo [成功] 配置文件 .env 已存在
 )
 
+:: 设置国内镜像以加速依赖下载
+echo [信息] 正在配置 Go 国内镜像...
+go env -w GOPROXY=https://goproxy.cn,direct
+
 :: 下载依赖
 echo.
 echo [信息] 正在下载 Go 依赖...
