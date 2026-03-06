@@ -26,6 +26,8 @@ import (
 	"cursor2api-go/models"
 	"cursor2api-go/services"
 	"cursor2api-go/utils"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -213,6 +215,11 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 			"invalid_json",
 		))
 		return
+	}
+
+	// 打印前端传入的请求参数 JSON
+	if reqJSON, err := json.Marshal(request); err == nil {
+		fmt.Println("Request JSON:", string(reqJSON))
 	}
 
 	// 验证模型

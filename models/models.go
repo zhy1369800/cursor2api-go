@@ -35,6 +35,22 @@ type ChatCompletionRequest struct {
 	TopP        *float64  `json:"top_p,omitempty"`
 	Stop        []string  `json:"stop,omitempty"`
 	User        string    `json:"user,omitempty"`
+	Tools       []Tool    `json:"tools,omitempty"`
+	ToolChoice  *string   `json:"tool_choice,omitempty"`
+}
+
+// Tool 工具结构
+type Tool struct {	
+	Type     string           `json:"type"`
+	Function FunctionDefinition `json:"function"`
+}
+
+// FunctionDefinition 函数定义结构
+type FunctionDefinition struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Parameters  interface{} `json:"parameters,omitempty"`
+
 }
 
 // Message 消息结构
