@@ -259,7 +259,7 @@ func (s *CursorService) fetchXIsHuman(ctx context.Context) (string, error) {
 				s.scriptMutex.Unlock()
 				// 生成一个简单的x-is-human token作为fallback
 				token := utils.GenerateRandomString(64)
-				logrus.Warnf("Script fetch returned status %d, generated fallback token", resp.StatusCode)
+				logrus.Debugf("Script fetch returned status %d, generated fallback token", resp.StatusCode)
 				return token, nil
 			}
 		} else {
