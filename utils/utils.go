@@ -124,16 +124,15 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 					WriteSSEEvent(c.Writer, "", string(jsonData))
 				}
 				WriteSSEEvent(c.Writer, "", "[DONE]")
-				// fmt.Println("[Stream] channel closed, sent [DONE]")
+				fmt.Println("[Stream] channel closed, sent [DONE]")
 				return
 			}
 
-			// fmt.Printf("[Stream] received type=%T value=%v\n", data, data)
 			switch v := data.(type) {
 			case string:
 				// 文本内容
 				if v != "" {
-					// fmt.Printf("[Stream] text chunk: %s\n", v)
+					fmt.Printf("[Stream] text chunk: %s\n", v)
 					streamResp := models.NewChatCompletionStreamResponse(responseID, modelName, v, nil)
 					if jsonData, err := json.Marshal(streamResp); err == nil {
 						WriteSSEEvent(c.Writer, "", string(jsonData))
@@ -142,17 +141,17 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 
 			case models.Usage:
 				// 使用统计 - 通常在最后发送
-				// fmt.Printf("[Stream] usage: prompt=%d completion=%d total=%d\n", v.PromptTokens, v.CompletionTokens, v.TotalTokens)
+				fmt.Printf("[Stream] usage: prompt=%d completion=%d total=%d\n", v.PromptTokens, v.CompletionTokens, v.TotalTokens)
 				continue
 
 			case error:
-				// fmt.Printf("[Stream] error: %v\n", v)
+				fmt.Printf("[Stream] error: %v\n", v)
 				logrus.WithError(v).Error("Stream generator error")
 				WriteSSEEvent(c.Writer, "", "[DONE]")
 				return
 
 			default:
-				// fmt.Printf("[Stream] unknown type: %T\n", v)
+				fmt.Printf("[Stream] unknown type: %T\n", v)
 				logrus.Warnf("Unknown data type in stream: %T", v)
 			}
 		}
@@ -186,7 +185,7 @@ func NonStreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, m
 					fullContent.String(),
 					usage,
 				)
-				c.JSON(http.StatusOK, response)
+				nonStreamLog(response)
 				return
 			}
 
@@ -201,6 +200,25 @@ func NonStreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, m
 			}
 		}
 	}
+}
+
+// nonStreamLog 打印非流式响应信息（内部辅助函数）
+func nonStreamLog(response *models.ChatCompletionResponse) {
+	if response == nil {
+		return
+	}
+	fmt.Printf("[NonStream] id=%s model=%s\n", response.ID, response.Model)
+	if len(response.Choices) > 0 {
+		fmt.Printf("[NonStream] content=%s finish_reason=%s\n",
+			response.Choices[0].Message.Content,
+			response.Choices[0].FinishReason,
+		)
+	}
+	fmt.Printf("[NonStream] usage: prompt=%d completion=%d total=%d\n",
+		response.Usage.PromptTokens,
+		response.Usage.CompletionTokens,
+		response.Usage.TotalTokens,
+	)
 }
 
 // ErrorWrapper 错误包装器
