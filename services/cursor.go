@@ -75,7 +75,13 @@ func NewCursorService(cfg *config.Config) *CursorService {
 	}
 
 	client := req.C()
-	client.SetTimeout(time.Duration(cfg.Timeout) * time.Second)
+	// 禁用全局超时，以支持长耗时的流式响应
+	client.SetTimeout(0)
+
+	// 设置响应头超时，确保在指定时间内能收到服务器响应
+	// req/v3 的 Transport 包装了 http.Transport
+	client.GetTransport().SetResponseHeaderTimeout(time.Duration(cfg.Timeout) * time.Second)
+
 	client.ImpersonateChrome()
 	if jar != nil {
 		client.SetCookieJar(jar)

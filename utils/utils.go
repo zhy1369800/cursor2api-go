@@ -330,12 +330,15 @@ func SafeStreamWrapper(handler func(*gin.Context, <-chan interface{}, string), c
 // CreateHTTPClient 创建HTTP客户端
 func CreateHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Timeout: timeout,
+		// 禁用全局超时，以支持长耗时的流式响应
+		Timeout: 0,
 		Transport: &http.Transport{
 			Proxy:               http.ProxyFromEnvironment,
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
+			// 设置响应头超时，确保在指定时间内能收到服务器响应
+			ResponseHeaderTimeout: timeout,
 		},
 	}
 }
