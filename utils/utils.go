@@ -126,6 +126,7 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 			return
 
 		case data, ok := <-chatGenerator:
+			fmt.Printf("[Stream] received type=%T value=%v\n", data, data)
 			if !ok {
 				// 通道关闭，发送完成事件
 				reason := "stop"
@@ -147,7 +148,27 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 				switch v.Kind {
 				case models.AssistantEventText:
 					if v.Text != "" {
+						if toolCallIndex > 0 {
+							if strings.TrimSpace(v.Text) != "" {
+								// 发送工具调用的完成事件并截断剩余流，防止大模型幻觉补全
+								reason := "tool_calls"
+								writeChunk(models.StreamDelta{}, stringPtr(reason))
+								WriteSSEEvent(c.Writer, "", "[DONE]")
+								return
+							}
+							continue
+						}
 						writeChunk(models.StreamDelta{Content: v.Text}, nil)
+					}
+				case models.AssistantEventThinking:
+					if v.Thinking != "" {
+						if toolCallIndex > 0 {
+							reason := "tool_calls"
+							writeChunk(models.StreamDelta{}, stringPtr(reason))
+							WriteSSEEvent(c.Writer, "", "[DONE]")
+							return
+						}
+						writeChunk(models.StreamDelta{ReasoningContent: v.Thinking}, nil)
 					}
 				case models.AssistantEventToolCall:
 					if v.ToolCall != nil {
@@ -173,6 +194,15 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 					started = true
 				}
 				if v != "" {
+					if toolCallIndex > 0 {
+						if strings.TrimSpace(v) != "" {
+							reason := "tool_calls"
+							writeChunk(models.StreamDelta{}, stringPtr(reason))
+							WriteSSEEvent(c.Writer, "", "[DONE]")
+							return
+						}
+						continue
+					}
 					writeChunk(models.StreamDelta{Content: v}, nil)
 				}
 
@@ -195,6 +225,7 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 // NonStreamChatCompletion 处理非流式聊天完成
 func NonStreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, modelName string) {
 	var fullContent strings.Builder
+	var fullThinking strings.Builder
 	var usage models.Usage
 	toolCalls := make([]models.ToolCall, 0, 2)
 	finishReason := "stop"
@@ -221,6 +252,9 @@ func NonStreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, m
 				if fullContent.Len() > 0 || len(toolCalls) == 0 {
 					message.Content = fullContent.String()
 				}
+				if fullThinking.Len() > 0 {
+					message.ReasoningContent = fullThinking.String()
+				}
 				if len(toolCalls) > 0 {
 					message.ToolCalls = toolCalls
 					finishReason = "tool_calls"
@@ -241,6 +275,8 @@ func NonStreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, m
 				switch v.Kind {
 				case models.AssistantEventText:
 					fullContent.WriteString(v.Text)
+				case models.AssistantEventThinking:
+					fullThinking.WriteString(v.Thinking)
 				case models.AssistantEventToolCall:
 					if v.ToolCall != nil {
 						toolCalls = append(toolCalls, *v.ToolCall)

@@ -214,7 +214,7 @@ func (s *CursorService) collectNonStream(ctx context.Context, gen <-chan interfa
 		case <-ctx.Done():
 			return nonStreamCollectResult{}, ctx.Err()
 		case data, ok := <-gen:
-			if !ok {
+			flushAndReturn := func() (nonStreamCollectResult, error) {
 				msg := models.Message{Role: "assistant"}
 				if fullContent.Len() > 0 || len(toolCalls) == 0 {
 					msg.Content = fullContent.String()
@@ -232,20 +232,39 @@ func (s *CursorService) collectNonStream(ctx context.Context, gen <-chan interfa
 				}, nil
 			}
 
+			if !ok {
+				return flushAndReturn()
+			}
+
 			switch v := data.(type) {
 			case models.AssistantEvent:
 				switch v.Kind {
 				case models.AssistantEventText:
+					if len(toolCalls) > 0 {
+						if strings.TrimSpace(v.Text) != "" {
+							return flushAndReturn()
+						}
+						continue
+					}
 					fullContent.WriteString(v.Text)
 				case models.AssistantEventToolCall:
 					if v.ToolCall != nil {
 						toolCalls = append(toolCalls, *v.ToolCall)
 					}
 				case models.AssistantEventThinking:
+					if len(toolCalls) > 0 {
+						return flushAndReturn()
+					}
 					// thinking 对于 OpenAI chat.completion 的 message.content 不直接暴露
 					continue
 				}
 			case string:
+				if len(toolCalls) > 0 {
+					if strings.TrimSpace(v) != "" {
+						return flushAndReturn()
+					}
+					continue
+				}
 				fullContent.WriteString(v)
 			case models.Usage:
 				usage = v
