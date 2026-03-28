@@ -126,7 +126,7 @@ func StreamChatCompletion(c *gin.Context, chatGenerator <-chan interface{}, mode
 			return
 
 		case data, ok := <-chatGenerator:
-			fmt.Printf("[Stream] received type=%T value=%v\n", data, data)
+			// fmt.Printf("[Stream] received type=%T value=%v\n", data, data)
 			if !ok {
 				// 通道关闭，发送完成事件
 				reason := "stop"

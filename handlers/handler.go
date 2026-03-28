@@ -29,8 +29,8 @@ import (
 	"net/http"
 	"os"
 	"time"
-	"encoding/json"
-	"fmt"
+	// "encoding/json"
+	// "fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -219,9 +219,9 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 	}
 
 		// 打印前端传入的请求参数 JSON
-	if reqJSON, err := json.Marshal(request); err == nil {
-		fmt.Println("Request JSON:", string(reqJSON))
-	}
+	// if reqJSON, err := json.Marshal(request); err == nil {
+	// 	fmt.Println("Request JSON:", string(reqJSON))
+	// }
 	
 	// 验证模型
 	if !h.config.IsValidModel(request.Model) {
