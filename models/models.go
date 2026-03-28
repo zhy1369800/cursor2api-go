@@ -210,6 +210,11 @@ type CursorEventData struct {
 	Delta           string                 `json:"delta,omitempty"`
 	ErrorText       string                 `json:"errorText,omitempty"`
 	MessageMetadata *CursorMessageMetadata `json:"messageMetadata,omitempty"`
+
+	// 专门捕获 Cursor 底层拦截原生工具调用的报错事件 (tool-input-error)
+	ToolCallID string          `json:"toolCallId,omitempty"`
+	ToolName   string          `json:"toolName,omitempty"`
+	Input      json.RawMessage `json:"input,omitempty"`
 }
 
 // CursorMessageMetadata Cursor消息元数据

@@ -123,6 +123,18 @@ func (s *CursorService) ChatCompletion(ctx context.Context, request *models.Chat
 
 		// 添加详细的调试日志
 		headers := s.chatHeaders(xIsHuman)
+		
+		// DUMP FULL REQUEST FOR USER DEBUGGING
+		logrus.Debugf("================== FULL CURSOR REQUEST FOR POSTMAN ==================")
+		logrus.Debugf("URL: POST %s", cursorAPIURL)
+		logrus.Debugf("Headers:")
+		for k, v := range headers {
+			logrus.Debugf("  %s: %s", k, v)
+		}
+		logrus.Debugf("Body Payload (JSON):")
+		logrus.Debugf("%s", string(jsonPayload))
+		logrus.Debugf("=====================================================================")
+
 		logrus.WithFields(logrus.Fields{
 			"url":            cursorAPIURL,
 			"x-is-human":     xIsHuman[:50] + "...", // 只显示前50个字符
@@ -371,7 +383,14 @@ func (s *CursorService) consumeSSE(ctx context.Context, resp *http.Response, out
 		default:
 		}
 
-		data := utils.ParseSSELine(scanner.Text())
+		line := scanner.Text()
+		
+		// 方便用于追踪 Cursor 原始底层的拦截或隐藏错误动作（例如 tool-input-error）
+		if strings.HasPrefix(line, "data: ") {
+			logrus.Debugf("[Raw SSE] %s", line)
+		}
+
+		data := utils.ParseSSELine(line)
 		if data == "" {
 			continue
 		}
@@ -388,6 +407,37 @@ func (s *CursorService) consumeSSE(ctx context.Context, resp *http.Response, out
 		}
 
 		switch eventData.Type {
+
+        // 从拦截信息中转成OpenAI Function Calling
+		case "tool-input-error":
+			logrus.WithFields(logrus.Fields{
+				"tool_name":    eventData.ToolName,
+				"tool_call_id": eventData.ToolCallID,
+			}).Info("Intercepted native tool-input-error! Converting to simulated tool_call event")
+
+			argsStr := "{}"
+			if len(eventData.Input) > 0 {
+				argsStr = string(eventData.Input)
+			}
+
+			tc := models.ToolCall{
+				ID:   eventData.ToolCallID,
+				Type: "function",
+				Function: models.FunctionCall{
+					Name:      eventData.ToolName,
+					Arguments: argsStr,
+				},
+			}
+
+			select {
+			case output <- models.AssistantEvent{
+				Kind:     models.AssistantEventToolCall,
+				ToolCall: &tc,
+			}:
+			case <-ctx.Done():
+				return
+			}
+			continue
 		case "error":
 			if eventData.ErrorText != "" {
 				errResp := middleware.NewCursorWebError(http.StatusBadGateway, "cursor API error: "+eventData.ErrorText)
