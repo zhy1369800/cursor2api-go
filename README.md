@@ -9,7 +9,7 @@
 
 ## ✨ 特性
 
-- 🔄 **API 兼容**: 兼容 OpenAI `chat/completions` 接口
+- 🔄 **API 兼容**: 兼容 OpenAI `chat/completions` 及 Anthropic 原生 `messages` 接口
 - ⚡ **高性能**: 低延迟响应
 - 🔐 **安全认证**: 支持 API Key 认证
 - 🌐 **模型派生**: 自动暴露 `*-thinking` 模型
@@ -179,7 +179,28 @@ sudo systemctl status cursor2api-go
 curl -H "Authorization: Bearer 0000" http://localhost:8002/v1/models
 ```
 
-### 非流式聊天
+### Anthropic 原生接口 (/v1/messages)
+
+> **⚠️ 注意：此端点仅支持 Anthropic Claude 系列模型。**
+
+此端点原生兼容 Anthropic 协议，支持 `x-api-key` 鉴权，并能极其完美地解析客户端发送的原生态 `tools` 块和响应 `tool_use` 流，无需任何特殊系统词条约束。
+
+```bash
+curl -X POST http://localhost:8002/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: 0000" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4.6",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 1024,
+    "stream": true
+  }'
+```
+
+### OpenAI 接口 (/v1/chat/completions)
+
+#### 非流式聊天
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \

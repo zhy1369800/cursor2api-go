@@ -16,7 +16,7 @@ A Go service that converts Cursor Web into an OpenAI `chat/completions` compatib
 - ✅ Clean web interface
 - ✅ Supports `tools`, `tool_choice`, and `tool_calls`
 - ✅ Automatically derives `-thinking` public models
-- ❌ Does not yet support Anthropic `/v1/messages` or MCP
+- ✅ High-fidelity Anthropic `/v1/messages` native endpoint with full MCP tools support
 
 ## 🖼️ Screenshots
 
@@ -182,7 +182,28 @@ sudo systemctl status cursor2api-go
 curl -H "Authorization: Bearer 0000" http://localhost:8002/v1/models
 ```
 
-### Non-Streaming Chat
+### Anthropic Native Endpoint (/v1/messages)
+
+> **⚠️ Note: This endpoint is strictly for the Anthropic Claude family of models.**
+
+Supports pure Anthropic protocol. Uses `x-api-key` auth. Zero prompt hacks required to power native `tools` payload validation and execute flawless `tool_use` chunk streaming. Native MCP compatible.
+
+```bash
+curl -X POST http://localhost:8002/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: 0000" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4.6",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 1024,
+    "stream": true
+  }'
+```
+
+### OpenAI Compatible Endpoint (/v1/chat/completions)
+
+#### Non-Streaming Chat
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
