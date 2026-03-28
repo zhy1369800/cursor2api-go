@@ -37,6 +37,7 @@ type ChatCompletionRequest struct {
 	User        string          `json:"user,omitempty"`
 	Tools       []Tool          `json:"tools,omitempty"`
 	ToolChoice  json.RawMessage `json:"tool_choice,omitempty"`
+	IsAnthropicMode bool        `json:"-"` // 内部标记，是否为 Anthropic 模式
 }
 
 // Message 消息结构

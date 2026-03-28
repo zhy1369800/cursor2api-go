@@ -105,8 +105,11 @@ func setupRoutes(router *gin.Engine, handler *handlers.Handler) {
 		// 模型列表
 		v1.GET("/models", handler.ListModels) // 模型列表不需要鉴权
 
-		// 聊天完成
+		// 原生 OpenAI 聊天完成
 		v1.POST("/chat/completions", middleware.AuthRequired(), handler.ChatCompletions)
+
+		// 新增 Anthropic 消息
+		v1.POST("/messages", middleware.AuthRequired(), handler.AnthropicMessages)
 	}
 
 	// 静态文件服务（如果需要）
