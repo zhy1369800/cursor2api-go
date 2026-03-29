@@ -217,6 +217,7 @@ type nonStreamCollectResult struct {
 
 func (s *CursorService) collectNonStream(ctx context.Context, gen <-chan interface{}, modelName string) (nonStreamCollectResult, error) {
 	var fullContent strings.Builder
+	var fullThinking strings.Builder
 	var usage models.Usage
 	toolCalls := make([]models.ToolCall, 0, 2)
 	finishReason := "stop"
@@ -230,6 +231,9 @@ func (s *CursorService) collectNonStream(ctx context.Context, gen <-chan interfa
 				msg := models.Message{Role: "assistant"}
 				if fullContent.Len() > 0 || len(toolCalls) == 0 {
 					msg.Content = fullContent.String()
+				}
+				if fullThinking.Len() > 0 {
+					msg.ReasoningContent = fullThinking.String()
 				}
 				if len(toolCalls) > 0 {
 					msg.ToolCalls = toolCalls
@@ -267,8 +271,7 @@ func (s *CursorService) collectNonStream(ctx context.Context, gen <-chan interfa
 					if len(toolCalls) > 0 {
 						return flushAndReturn()
 					}
-					// thinking 对于 OpenAI chat.completion 的 message.content 不直接暴露
-					continue
+					fullThinking.WriteString(v.Thinking)
 				}
 			case string:
 				if len(toolCalls) > 0 {
