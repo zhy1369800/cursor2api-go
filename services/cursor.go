@@ -80,6 +80,16 @@ func NewCursorService(cfg *config.Config) *CursorService {
 		client.SetCookieJar(jar)
 	}
 
+	// 显式设置代理，确保在下载 SCRIPT_URL 时能穿墙
+	proxyURL := os.Getenv("HTTP_PROXY")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("http_proxy")
+	}
+	if proxyURL != "" {
+		logrus.Infof("Using proxy for Cursor Service: %s", proxyURL)
+		client.SetProxyURL(proxyURL)
+	}
+
 	return &CursorService{
 		config:          cfg,
 		client:          client,
@@ -287,6 +297,67 @@ func (s *CursorService) fetchXIsHuman(ctx context.Context) (string, error) {
 
 	logrus.WithField("length", len(value)).Debug("Fetched x-is-human token")
 
+func (s *CursorService) fetchXIsHuman(ctx context.Context) (string, error) {
+	// 1. 检查内存缓存 (1分钟有效期)
+	s.scriptMutex.RLock()
+	cached := s.scriptCache
+	lastFetch := s.scriptCacheTime
+	s.scriptMutex.RUnlock()
+
+	var scriptBody string
+	diskCachePath := filepath.Join("jscode", "cursor_latest.js")
+
+	if cached != "" && time.Since(lastFetch) < 1*time.Minute {
+		scriptBody = cached
+	} else {
+		// 2. 检查硬盘缓存 (如果内存没有或者过期，优先看硬盘是否有手动存放的最新包)
+		if scriptOnDisk, err := os.ReadFile(diskCachePath); err == nil && len(scriptOnDisk) > 1000 {
+			scriptBody = string(scriptOnDisk)
+			// 注意：硬盘缓存如果是过期的，我们依然可以用它作为保底，
+			// 但我们可以尝试在后台异步更新它(本处简单处理，直接使用)
+		}
+
+		// 3. 只有硬盘也没有且内存也没有，或者为了保持最新进行网络请求
+		if scriptBody == "" || time.Since(lastFetch) >= 10*time.Minute {
+			resp, err := s.client.R().
+				SetContext(ctx).
+				SetHeaders(s.scriptHeaders()).
+				Get(s.config.ScriptURL)
+
+			if err == nil && resp.StatusCode == http.StatusOK {
+				scriptBody = string(resp.Bytes())
+				// 4. 成功后同步更新内存和硬盘缓存
+				s.scriptMutex.Lock()
+				s.scriptCache = scriptBody
+				s.scriptCacheTime = time.Now()
+				s.scriptMutex.Unlock()
+				_ = os.WriteFile(diskCachePath, []byte(scriptBody), 0644)
+			} else if scriptBody == "" {
+				// 网络失败且真的没缓存了，采用最后的随机 Token 模式
+				token := utils.GenerateRandomString(64)
+				logrus.Warnf("All fetch attempts failed (including 500/timeout), using random fallback token")
+				return token, nil
+			}
+		}
+	}
+
+	compiled := s.prepareJS(scriptBody)
+	value, err := utils.RunJS(compiled)
+	if err != nil {
+		// 如果运行失败（可能是本地存的代码太老了），尝试清除硬盘缓存期待下次下载
+		if errRemove := os.Remove(diskCachePath); errRemove == nil {
+			logrus.Warn("Removed corrupted/outdated local JS cache")
+		}
+		token := utils.GenerateRandomString(64)
+		logrus.Warnf("Failed to execute JS: %v, using random fallback token", err)
+		return token, nil
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"length": len(value),
+		"source": "cache/disk",
+	}).Debug("Fetched x-is-human token")
+
 	return value, nil
 }
 
@@ -351,6 +422,19 @@ func (s *CursorService) truncateMessages(messages []models.Message) []models.Mes
 	}
 
 	return append(result, collected...)
+}
+
+func cursorMessageTextLength(msg models.CursorMessage) int {
+	total := 0
+	for _, part := range msg.Parts {
+		if part.Type == "text" {
+			total += len(part.Text)
+		} else if part.Type == "image" && part.Image != nil {
+			// 图片 base64 长度也要算进去，否则会因为 payload 太大被 Vercel 拒绝
+			total += len(part.Image.Data)
+		}
+	}
+	return total
 }
 
 func (s *CursorService) chatHeaders(xIsHuman string) map[string]string {

@@ -140,16 +140,18 @@ func (g *HeaderGenerator) GetChatHeaders(xIsHuman string) map[string]string {
 	referer := referers[g.rng.Intn(len(referers))]
 
 	headers := map[string]string{
-		"sec-ch-ua-platform": fmt.Sprintf(`"%s"`, g.profile.Platform),
-		"x-path":             "/api/chat",
-		"Referer":            referer,
-		"sec-ch-ua":          g.getSecChUa(),
-		"x-method":           "POST",
-		"sec-ch-ua-mobile":   "?0",
-		"x-is-human":         xIsHuman,
-		"User-Agent":         g.profile.UserAgent,
-		"content-type":       "application/json",
-		"accept-language":    lang,
+		"sec-ch-ua-platform":      fmt.Sprintf(`"%s"`, g.profile.Platform),
+		"x-path":                  "/api/chat",
+		"Referer":                 referer,
+		"sec-ch-ua":               g.getSecChUa(),
+		"x-method":                "POST",
+		"sec-ch-ua-mobile":        "?0",
+		"x-is-human":              xIsHuman,
+		"x-cursor-client-version": "0.45.15",
+		"x-cursor-timezone":       "Asia/Shanghai",
+		"User-Agent":              g.profile.UserAgent,
+		"content-type":            "application/json",
+		"accept-language":         lang,
 	}
 
 	// 添加可选的 headers
@@ -195,6 +197,9 @@ func (g *HeaderGenerator) GetScriptHeaders() map[string]string {
 		"sec-fetch-mode":     "no-cors",
 		"sec-fetch-dest":     "script",
 		"referer":            referer,
+		"origin":             "https://cursor.com",
+		"pragma":             "no-cache",
+		"cache-control":      "no-cache",
 		"accept-language":    lang,
 	}
 

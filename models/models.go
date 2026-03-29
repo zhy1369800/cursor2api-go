@@ -21,7 +21,14 @@
 package models
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
+	"strings"
 	"time"
 )
 
@@ -76,9 +83,13 @@ type Function struct {
 
 // ContentPart 消息内容部分（用于多模态内容）
 type ContentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-	URL  string `json:"url,omitempty"`
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ImageURLInfo `json:"image_url,omitempty"`
+}
+
+type ImageURLInfo struct {
+	URL string `json:"url"`
 }
 
 // ChatCompletionResponse OpenAI聊天完成响应
@@ -163,8 +174,16 @@ type CursorMessage struct {
 
 // CursorPart Cursor消息部分
 type CursorPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	Image    *CursorImage `json:"image,omitempty"`
+	ImageUrl string       `json:"imageUrl,omitempty"`
+}
+
+// CursorImage Cursor图片数据
+type CursorImage struct {
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
 }
 
 // CursorRequest Cursor请求格式
@@ -339,6 +358,52 @@ func NewChatCompletionStreamResponse(id, model, content string, finishReason *st
 		},
 	}
 }
+
+// ParseDataURL 解析 data:image/png;base64,xxxx
+func ParseDataURL(url string) (mimeType string, data string, ok bool) {
+	if !strings.HasPrefix(url, "data:") {
+		return "", "", false
+	}
+	// data:image/jpeg;base64,/9j/..
+	parts := strings.SplitN(url[5:], ";base64,", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+// CompressImage 如果图片超过 1MB，则尝试进行 JPEG 压缩以减小体积，适配 Vercel Payload 限制
+func CompressImage(data string) string {
+	// 如果原始 base64 就已经小于 1MB，直接返回
+	if len(data) < 1024*1024 {
+		return data
+	}
+
+	b, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return data
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return data
+	}
+
+	// 重新编码为 JPEG，设置质量为 70
+	var buf bytes.Buffer
+	err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 70})
+	if err != nil {
+		return data
+	}
+
+	// 如果压缩后更大了（比如极小的 PNG 转 JPEG），则返回原图，否则返回压缩后的
+	if buf.Len() >= len(b) {
+		return data
+	}
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
 
 // NewErrorResponse 创建错误响应
 func NewErrorResponse(message, errorType, code string) *ErrorResponse {
