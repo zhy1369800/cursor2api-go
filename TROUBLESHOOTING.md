@@ -150,3 +150,36 @@ utils/headers.go
 
 jscode/main.js
 。
+
+
+一次ai获取的经历：
+
+实地探测结果出来了！我模拟浏览器访问了 https://cursor.com 及其文档页，成功定位到了目前负责指纹生成的脚本。
+
+📡 探测结果：最新的指纹脚本 URL
+目前官网上最核心的两个脚本地址如下（当前日期 2026-03-29）：
+
+主入口脚本 (最推荐作为 SCRIPT_URL): https://cursor.com/docs-static/_next/static/chunks/0jf6~fkj7siwy.js?dpl=dpl_AYjBkEAgHoxjQoRpowczw7bHoiNm
+
+理由：这个脚本带有 id="_R_" 标识，是加载所有业务逻辑的“总闸”。
+核心算法脚本 (体积最大，包含 WASM): https://cursor.com/docs-static/_next/static/chunks/180ai4wjrjlz8.js?dpl=dpl_AYjBkEAgHoxjQoRpowczw7bHoiNm
+
+理由：体积约 330KB，包含了复杂的混淆代码和 WebAssembly 引用，通常真正的 x-is-human 校验算法就藏在这里。
+🔍 我是怎么找到它们的？（您可以照着做）
+如果您以后发现指纹失效了，可以按照以下步骤手动抓取：
+
+访问受控页面：打开 https://cursor.com/learn/how-ai-models-work（这个页面比主页干扰少，更稳定）。
+右键 -> 查看网页源代码：
+搜索关键词 id="_R_"。
+找到对应的 <script src="...">，那个 src 里的地址就是最新的入口脚本。
+开发者工具 (F12) -> Network (网络)：
+刷新页面，在 JS 过滤器中寻找后缀带 ?dpl=dpl_... 的文件。
+通常体积在 300KB 以上的那个文件就是包含指纹算法的核心文件。
+注意 dpl 参数：URL 末尾的 dpl_AYjBkEAg... 是 Cursor 的部署版本号，每次官网更新代码这个动态后缀都会变。
+建议：您可以把第一个 URL 更新到您的 
+
+.env
+ 的 SCRIPT_URL 中。虽然目前后端代码主要读本地的 
+
+jscode/main.js
+，但保持该 URL 的正确性有助于您之后（或使用其他工具时）快速追踪到官网的最新变化。
