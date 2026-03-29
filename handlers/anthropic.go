@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"cursor2api-go/models"
-	"cursor2api-go/services"
 	"cursor2api-go/utils"
 	"encoding/json"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 )
 
 func (h *Handler) AnthropicMessages(c *gin.Context) {
-	cfg := h.config
 	var req models.AnthropicMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
@@ -31,6 +29,7 @@ func (h *Handler) AnthropicMessages(c *gin.Context) {
 		Stream:          req.Stream,
 		Messages:        make([]models.Message, 0, len(req.Messages)+1),
 		Tools:           make([]models.Tool, 0, len(req.Tools)),
+		ToolChoice:      convertAnthropicToolChoice(req.ToolChoice),
 		IsAnthropicMode: true,
 	}
 
@@ -140,11 +139,9 @@ func (h *Handler) AnthropicMessages(c *gin.Context) {
 		})
 	}
 
-	// 构建复用服务
-	cursorService := services.NewCursorService(cfg)
 	ctx := c.Request.Context()
 
-	resultChan, err := cursorService.ChatCompletion(ctx, &openAIReq)
+	resultChan, err := h.cursorService.ChatCompletion(ctx, &openAIReq)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"type": "error", "error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
@@ -384,4 +381,55 @@ func writeSSEFlush(w http.ResponseWriter, flusher http.Flusher, hasFlusher bool,
 
 func utilsGenerateRandomId() string {
 	return utils.GenerateRandomString(24)
+}
+
+// convertAnthropicToolChoice 将 Anthropic tool_choice 转换为 OpenAI 格式的 json.RawMessage
+// Anthropic 格式:
+//   {"type": "auto"}                        → OpenAI "auto"
+//   {"type": "any"}                         → OpenAI "required"
+//   {"type": "tool", "name": "func_name"}   → OpenAI {"type": "function", "function": {"name": "func_name"}}
+func convertAnthropicToolChoice(raw interface{}) json.RawMessage {
+	if raw == nil {
+		return nil
+	}
+
+	// 尝试解析为 map
+	var m map[string]interface{}
+	switch v := raw.(type) {
+	case map[string]interface{}:
+		m = v
+	default:
+		// 可能是 JSON 原始值，先序列化再反序列化
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return nil
+		}
+		if err := json.Unmarshal(b, &m); err != nil {
+			return nil
+		}
+	}
+
+	tcType, _ := m["type"].(string)
+	switch tcType {
+	case "auto":
+		return json.RawMessage(`"auto"`)
+	case "any":
+		return json.RawMessage(`"required"`)
+	case "tool":
+		name, _ := m["name"].(string)
+		if name == "" {
+			return json.RawMessage(`"required"`)
+		}
+		obj := models.ToolChoiceObject{
+			Type:     "function",
+			Function: &models.ToolChoiceFunction{Name: name},
+		}
+		b, err := json.Marshal(obj)
+		if err != nil {
+			return json.RawMessage(`"required"`)
+		}
+		return json.RawMessage(b)
+	default:
+		return nil
+	}
 }
