@@ -112,3 +112,30 @@ DEBUG=true ./cursor2api-go
 2. `.env` 文件配置（隐藏敏感信息如 `API_KEY`）
 3. 使用的 Go 版本和 Node.js 版本
 4. 操作系统信息
+
+
+
+### SCRIPT_URL获取指令
+
+```
+指令内容： “请启动浏览器 Subagent 执行 Deep Fingerprint Detection (深度特征探测)。
+
+任务目标：
+
+获取 SCRIPT_URL：模拟访问 cursor.com/login，在所有动态加载的 /assets/*.js 中寻找包含 checksum、x-is-human 或 web_selection 核心特征的混淆脚本，锁定最新的指纹算法源路径。
+获取版本号：通过模拟指纹嗅探，提取当前官方 IDE 的最新有效版本号（即 x-cursor-client-version）。
+执行动作：
+
+探测完成后，请直接告诉我最新的 SCRIPT_URL。
+请自动帮助我更新 .env 文件中的 SCRIPT_URL。
+请自动将 
+
+utils/headers.go
+ 中的 x-cursor-client-version 修改为探测到的最新版本。
+最后重新编译程序：go build -o cursor2api-go.exe。”
+```
+
+指令背后的技术逻辑说明（供您参考）：
+为什么要访问 /login？ 因为 Cursor 的主页是静态展示，只有登录页和设置页才会加载包含复杂校验算法的正规业务脚本。
+为什么要扫描 checksum？ 这是指纹算法的关键字，只要搜到它，就意味着找到了“通行证工厂”的源头。
+版本号为什么要强制跟随？ 因为新版的 JS 脚本往往包含针对旧版本的“弃用”检查，如果不配合更新 Header 里的版本号，即便指纹算对了，也会因为版本过低被降级处理。
