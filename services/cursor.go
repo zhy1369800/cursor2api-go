@@ -412,11 +412,16 @@ func (s *CursorService) consumeSSE(ctx context.Context, resp *http.Response, out
 		switch eventData.Type {
 
         // 从拦截信息中转成OpenAI Function Calling
-		case "tool-input-error":
+		// 从拦截信息或原生 tool-call 中转成 OpenAI Function Calling
+		case "tool-input-error", "tool-call":
+			if eventData.ToolName == "" {
+				continue
+			}
 			logrus.WithFields(logrus.Fields{
+				"type":         eventData.Type,
 				"tool_name":    eventData.ToolName,
 				"tool_call_id": eventData.ToolCallID,
-			}).Info("Intercepted native tool-input-error! Converting to simulated tool_call event")
+			}).Info("Captured native tool invocation! Converting to simulated tool_call event")
 
 			argsStr := "{}"
 			if len(eventData.Input) > 0 {
@@ -453,6 +458,9 @@ func (s *CursorService) consumeSSE(ctx context.Context, resp *http.Response, out
 			}
 		case "finish":
 			flushParser()
+			if eventData.FinishReason == "tool-calls" {
+				logrus.WithField("usage", eventData.MessageMetadata.Usage).Warn("Cursor finished with 'tool-calls' reason but NO text or tool events were captured. This might be a hidden internal tool call or a suppression.")
+			}
 			if eventData.MessageMetadata != nil && eventData.MessageMetadata.Usage != nil {
 				usage := models.Usage{
 					PromptTokens:     eventData.MessageMetadata.Usage.InputTokens,
@@ -467,10 +475,21 @@ func (s *CursorService) consumeSSE(ctx context.Context, resp *http.Response, out
 			}
 			return
 		default:
-			if eventData.Delta == "" {
+			delta := eventData.Delta
+			if delta == "" {
+				// 汇总尝试抓取其他潜在输出字段
+				if eventData.Thought != "" {
+					delta = "<thinking>" + eventData.Thought + "</thinking>"
+				} else if eventData.Generation != "" {
+					delta = eventData.Generation
+				} else if eventData.Text != "" {
+					delta = eventData.Text
+				}
+			}
+			if delta == "" {
 				continue
 			}
-			for _, event := range parser.Feed(eventData.Delta) {
+			for _, event := range parser.Feed(delta) {
 				select {
 				case output <- event:
 				case <-ctx.Done():

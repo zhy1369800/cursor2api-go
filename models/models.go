@@ -209,6 +209,7 @@ type CursorRequest struct {
 type CursorEventData struct {
 	Type            string                 `json:"type"`
 	Delta           string                 `json:"delta,omitempty"`
+	FinishReason    string                 `json:"finishReason,omitempty"`
 	ErrorText       string                 `json:"errorText,omitempty"`
 	MessageMetadata *CursorMessageMetadata `json:"messageMetadata,omitempty"`
 
@@ -216,6 +217,11 @@ type CursorEventData struct {
 	ToolCallID string          `json:"toolCallId,omitempty"`
 	ToolName   string          `json:"toolName,omitempty"`
 	Input      json.RawMessage `json:"input,omitempty"`
+
+	// 兼容性字段：部分模型可能使用这些字段输出内容
+	Thought    string `json:"thought,omitempty"`
+	Generation string `json:"generation,omitempty"`
+	Text       string `json:"text,omitempty"`
 }
 
 // CursorMessageMetadata Cursor消息元数据
