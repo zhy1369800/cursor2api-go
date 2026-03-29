@@ -15,8 +15,9 @@ const (
 
 // CursorProtocolParser 将 Cursor 的纯文本增量转换为内部文本/thinking/tool_call 事件
 type CursorProtocolParser struct {
-	config  models.CursorParseConfig
-	pending string
+	config     models.CursorParseConfig
+	pending    string
+	inThinking bool // 是否处于 <thinking> 块内，用于流式增量输出
 }
 
 // NewCursorProtocolParser 创建新的协议解析器
@@ -50,6 +51,16 @@ func (p *CursorProtocolParser) extract(final bool) []models.AssistantEvent {
 	events := make([]models.AssistantEvent, 0, 4)
 
 	for len(p.pending) > 0 {
+		// 如果正处于 <thinking> 块内，流式增量输出 thinking 内容
+		if p.inThinking {
+			thinkEvents := p.extractThinkingContent(final)
+			events = append(events, thinkEvents...)
+			if p.inThinking && !final {
+				return events // 仍在 thinking 中，等待更多数据
+			}
+			continue
+		}
+
 		idx, kind := p.findNextSpecial()
 		if idx < 0 {
 			keep := 0
@@ -82,15 +93,13 @@ func (p *CursorProtocolParser) extract(final bool) []models.AssistantEvent {
 			continue
 		}
 
+		// idx == 0，特殊标记在开头
 		switch kind {
 		case models.AssistantEventThinking:
-			if event, ok := p.tryParseThinking(final); ok {
-				events = append(events, event)
-				continue
-			}
-			if !final {
-				return events
-			}
+			// 消费 <thinking> 开标签，进入流式 thinking 模式
+			p.pending = p.pending[len(thinkingStartTag):]
+			p.inThinking = true
+			continue
 		case models.AssistantEventToolCall:
 			if event, ok := p.tryParseToolCall(final); ok {
 				events = append(events, event)
@@ -109,6 +118,57 @@ func (p *CursorProtocolParser) extract(final bool) []models.AssistantEvent {
 	}
 
 	return events
+}
+
+// extractThinkingContent 在 inThinking 状态下增量提取 thinking 内容
+// 核心策略：保留末尾最多 len("</thinking>")-1 = 11 字节的缓冲用于检测闭合标签，
+// 其余内容立即作为 thinking 事件推送，避免长思考链导致用户长时间空白等待。
+func (p *CursorProtocolParser) extractThinkingContent(final bool) []models.AssistantEvent {
+	// 检查是否包含完整的闭合标签
+	endIdx := strings.Index(p.pending, thinkingEndTag)
+	if endIdx >= 0 {
+		// 找到闭合标签：输出剩余 thinking 内容，退出 thinking 模式
+		content := p.pending[:endIdx]
+		p.pending = p.pending[endIdx+len(thinkingEndTag):]
+		p.inThinking = false
+		if content != "" {
+			return []models.AssistantEvent{{
+				Kind:     models.AssistantEventThinking,
+				Thinking: content,
+			}}
+		}
+		return nil
+	}
+
+	if final {
+		// 流结束但未闭合：将剩余内容作为最后一段 thinking 输出
+		content := p.pending
+		p.pending = ""
+		p.inThinking = false
+		if content != "" {
+			return []models.AssistantEvent{{
+				Kind:     models.AssistantEventThinking,
+				Thinking: content,
+			}}
+		}
+		return nil
+	}
+
+	// 未找到闭合标签，保留尾部缓冲以检测部分 </thinking> 标签
+	keep := longestPrefixSuffix(p.pending, thinkingEndTag)
+	if len(p.pending) <= keep {
+		return nil // 数据不够，等待下一个 chunk
+	}
+
+	content := p.pending[:len(p.pending)-keep]
+	p.pending = p.pending[len(p.pending)-keep:]
+	if content != "" {
+		return []models.AssistantEvent{{
+			Kind:     models.AssistantEventThinking,
+			Thinking: content,
+		}}
+	}
+	return nil
 }
 
 func (p *CursorProtocolParser) findNextSpecial() (int, models.AssistantEventKind) {
@@ -143,31 +203,7 @@ func (p *CursorProtocolParser) partialStartKeep() int {
 	return maxKeep
 }
 
-func (p *CursorProtocolParser) tryParseThinking(final bool) (models.AssistantEvent, bool) {
-	if !strings.HasPrefix(p.pending, thinkingStartTag) {
-		return models.AssistantEvent{}, false
-	}
-
-	endIdx := strings.Index(p.pending[len(thinkingStartTag):], thinkingEndTag)
-	if endIdx < 0 {
-		if final {
-			return models.AssistantEvent{
-				Kind: models.AssistantEventText,
-				Text: p.pending,
-			}, true
-		}
-		return models.AssistantEvent{}, false
-	}
-
-	start := len(thinkingStartTag)
-	end := start + endIdx
-	content := p.pending[start:end]
-	p.pending = p.pending[end+len(thinkingEndTag):]
-	return models.AssistantEvent{
-		Kind:     models.AssistantEventThinking,
-		Thinking: content,
-	}, true
-}
+// tryParseThinking 已被流式 extractThinkingContent 取代（由 inThinking 状态驱动）
 
 func (p *CursorProtocolParser) tryParseToolCall(final bool) (models.AssistantEvent, bool) {
 	if p.config.TriggerSignal == "" || !strings.HasPrefix(p.pending, p.config.TriggerSignal) {

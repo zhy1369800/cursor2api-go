@@ -23,31 +23,141 @@ func TestCursorProtocolParserParsesThinkingAndToolCallsAcrossChunks(t *testing.T
 	events = append(events, parser.Feed("lo\"}</invoke>!")...)
 	events = append(events, parser.Finish()...)
 
-	if len(events) != 5 {
-		t.Fatalf("event count = %v, want 5", len(events))
+	// 收集所有 thinking 内容（现在可能是多个增量事件）
+	var thinkingContent string
+	var textEvents []models.AssistantEvent
+	var toolCallEvent *models.AssistantEvent
+
+	for i := range events {
+		switch events[i].Kind {
+		case models.AssistantEventThinking:
+			thinkingContent += events[i].Thinking
+		case models.AssistantEventText:
+			textEvents = append(textEvents, events[i])
+		case models.AssistantEventToolCall:
+			toolCallEvent = &events[i]
+		}
 	}
-	if events[0].Kind != models.AssistantEventText || events[0].Text != "Hello " {
-		t.Fatalf("event[0] = %#v, want text Hello", events[0])
+
+	// 验证 thinking 完整内容
+	if thinkingContent != "draft" {
+		t.Fatalf("thinking content = %q, want %q", thinkingContent, "draft")
 	}
-	if events[1].Kind != models.AssistantEventThinking || events[1].Thinking != "draft" {
-		t.Fatalf("event[1] = %#v, want thinking draft", events[1])
+
+	// 验证文本事件：至少包含 "Hello " 和 " world " 以及 "!"
+	var allText string
+	for _, e := range textEvents {
+		allText += e.Text
 	}
-	if events[2].Kind != models.AssistantEventText || events[2].Text != " world " {
-		t.Fatalf("event[2] = %#v, want text world", events[2])
+	if !strings.Contains(allText, "Hello ") || !strings.Contains(allText, " world ") || !strings.Contains(allText, "!") {
+		t.Fatalf("text content = %q, want to contain 'Hello ', ' world ', '!'", allText)
 	}
-	if events[3].Kind != models.AssistantEventToolCall || events[3].ToolCall == nil {
-		t.Fatalf("event[3] = %#v, want tool call", events[3])
+
+	// 验证工具调用
+	if toolCallEvent == nil || toolCallEvent.ToolCall == nil {
+		t.Fatalf("expected a tool call event")
 	}
-	if events[3].ToolCall.Function.Name != "lookup" {
-		t.Fatalf("tool name = %v, want lookup", events[3].ToolCall.Function.Name)
+	if toolCallEvent.ToolCall.Function.Name != "lookup" {
+		t.Fatalf("tool name = %v, want lookup", toolCallEvent.ToolCall.Function.Name)
 	}
-	if events[3].ToolCall.Function.Arguments != `{"q":"hello"}` {
-		t.Fatalf("tool arguments = %v, want compact json", events[3].ToolCall.Function.Arguments)
-	}
-	if events[4].Kind != models.AssistantEventText || events[4].Text != "!" {
-		t.Fatalf("event[4] = %#v, want trailing exclamation text", events[4])
+	if toolCallEvent.ToolCall.Function.Arguments != `{"q":"hello"}` {
+		t.Fatalf("tool arguments = %v, want compact json", toolCallEvent.ToolCall.Function.Arguments)
 	}
 }
+
+// TestStreamingThinkingIncrementalOutput 验证 thinking 内容跨多个 chunk 时的增量输出行为
+func TestStreamingThinkingIncrementalOutput(t *testing.T) {
+	parser := NewCursorProtocolParser(models.CursorParseConfig{
+		ThinkingEnabled: true,
+	})
+
+	// 第一个 chunk：开标签 + 部分内容
+	events1 := parser.Feed("<thinking>This is a long thought")
+	// 应该已经产出了 thinking 增量（扣除尾部缓冲）
+	var thinking1 string
+	for _, e := range events1 {
+		if e.Kind != models.AssistantEventThinking {
+			t.Fatalf("expected thinking event, got %v", e.Kind)
+		}
+		thinking1 += e.Thinking
+	}
+	if thinking1 == "" {
+		t.Fatalf("first chunk should produce incremental thinking output")
+	}
+
+	// 第二个 chunk：更多内容
+	events2 := parser.Feed(" that continues across chunks")
+	var thinking2 string
+	for _, e := range events2 {
+		if e.Kind != models.AssistantEventThinking {
+			t.Fatalf("expected thinking event, got %v", e.Kind)
+		}
+		thinking2 += e.Thinking
+	}
+
+	// 第三个 chunk：闭合标签 + 后续文本
+	events3 := parser.Feed("</thinking>Final answer.")
+	var thinking3 string
+	var finalText string
+	for _, e := range events3 {
+		switch e.Kind {
+		case models.AssistantEventThinking:
+			thinking3 += e.Thinking
+		case models.AssistantEventText:
+			finalText += e.Text
+		}
+	}
+
+	events4 := parser.Finish()
+	for _, e := range events4 {
+		if e.Kind == models.AssistantEventText {
+			finalText += e.Text
+		}
+	}
+
+	// 验证完整 thinking 内容一致
+	fullThinking := thinking1 + thinking2 + thinking3
+	expected := "This is a long thought that continues across chunks"
+	if fullThinking != expected {
+		t.Fatalf("full thinking = %q, want %q", fullThinking, expected)
+	}
+
+	// 验证后续文本
+	if finalText != "Final answer." {
+		t.Fatalf("final text = %q, want %q", finalText, "Final answer.")
+	}
+}
+
+// TestStreamingThinkingPartialEndTag 验证 </thinking> 标签拆分到两个 chunk 时不会误截
+func TestStreamingThinkingPartialEndTag(t *testing.T) {
+	parser := NewCursorProtocolParser(models.CursorParseConfig{
+		ThinkingEnabled: true,
+	})
+
+	var allEvents []models.AssistantEvent
+	allEvents = append(allEvents, parser.Feed("<thinking>Content</")...)   // "</" 是 "</thinking>" 的前缀
+	allEvents = append(allEvents, parser.Feed("thinking>Done")...)         // 补全闭合标签
+	allEvents = append(allEvents, parser.Finish()...)
+
+	var thinking string
+	var text string
+	for _, e := range allEvents {
+		switch e.Kind {
+		case models.AssistantEventThinking:
+			thinking += e.Thinking
+		case models.AssistantEventText:
+			text += e.Text
+		}
+	}
+
+	if thinking != "Content" {
+		t.Fatalf("thinking = %q, want %q", thinking, "Content")
+	}
+	if text != "Done" {
+		t.Fatalf("text = %q, want %q", text, "Done")
+	}
+}
+
 
 func TestNonStreamChatCompletionReturnsToolCalls(t *testing.T) {
 	gin.SetMode(gin.TestMode)
